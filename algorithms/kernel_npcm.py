@@ -110,21 +110,23 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
 
         :return:
         """
-        clf = KernelKMeans(self.m_ori, random_state=45).fit(self.x)
+        clf = KMeans(self.m_ori, random_state=45).fit(self.x)
         # hard classification labels
         labels = clf.labels_
+        # initialize theta, i.e., the centers
+        self.theta = clf.cluster_centers_
         # u
         u = np.zeros((np.shape(self.x)[0], self.m_ori))
         u[xrange(len(u)), labels] = 1
         self.u = u
-        # theta
-        self.theta = [np.average(self.x[labels == i], axis=0) for i in xrange(self.m_ori)]
-        # get eta
-        self.eta = clf.eta
-
+        # now compute ita
+        eta = np.zeros(self.m)
         self.log.debug("Initialize bandwidth via KMeans")
         for cntr_index in range(self.m_ori):
-            self.log.debug("%d th cluster, eta:%3f" % (cntr_index, self.eta[cntr_index]))
+            dist_2_cntr = map(np.linalg.norm, self.x[labels == cntr_index] - self.theta[cntr_index])
+            eta[cntr_index] = np.average(dist_2_cntr)
+            self.log.debug("%d th cluster, ita:%3f" % (cntr_index, eta[cntr_index]))
+        self.eta = eta
 
         # plot the fcm initialization result
         fig = plt.figure("KMeans_init", dpi=300, figsize=self.save_figsize)
@@ -144,7 +146,7 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         density_list = []  # store density each cluster
         for index in range(self.m):
             no_of_pnts = np.sum(labels == index)
-            density = no_of_pnts / np.power(self.eta[index], np.shape(self.x)[1])
+            density = no_of_pnts / np.power(eta[index], np.shape(self.x)[1])
             density_list.append(density)
         index_delete = []  # store the cluster index to be deleted
         p = 0
@@ -154,12 +156,11 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
                 index_delete.append(index)
                 p += 1
         for index in range(self.m):
-            self.log.debug("%d th cluster, ita:%.3f, density:%.3f", index, self.eta[index], density_list[index])
+            self.log.debug("%d th cluster, ita:%.3f, density:%.3f", index, eta[index], density_list[index])
         self.log.debug("Noise cluster delete list:%s", index_delete)
         self.theta = np.delete(self.theta, index_delete, axis=0)
         self.eta = np.delete(self.eta, index_delete, axis=0)
         self.m -= p
-
         pass
 
     def _get_kernel(self, X, Y=None):
