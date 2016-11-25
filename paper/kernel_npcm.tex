@@ -1,0 +1,92 @@
+% Created 2016-11-25 周五 08:42
+\documentclass[journal,onecolumn]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{fixltx2e}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{wrapfig}
+\usepackage{rotating}
+\usepackage[normalem]{ulem}
+\usepackage{amsmath}
+\usepackage{textcomp}
+\usepackage{marvosym}
+\usepackage{wasysym}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\tolerance=1000
+\usepackage[thmmarks, amsmath, thref]{ntheorem}
+\theoremstyle{definition}
+\makeatletter \renewtheoremstyle{plain} {\item{\theorem@headerfont ##1\ ##2\theorem@separator}~}  {\item{\theorem@headerfont ##1\ ##2\ (##3)\theorem@separator}~}
+\theoremheaderfont{\normalfont\bfseries}
+\theoremseparator{:}
+\theorembodyfont{\normalfont}
+\theoremsymbol{\ensuremath{\blacksquare}}
+\newtheorem{definition}{Definition}
+\newtheorem*{proof}{Proof}
+\newtheorem{prop}{Proposition}
+\usepackage[caption=false,font=footnotesize]{subfig}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\newcommand{\crhd}{\raisebox{.25ex}{$\rhd$}}
+\renewcommand{\algorithmiccomment}[1]{{\hspace{-0.6cm}$\crhd$ {\it {#1}}}}
+\interdisplaylinepenalty=2500
+\date{}
+\title{Kernel NPCM}
+\hypersetup{
+  pdfkeywords={},
+  pdfsubject={},
+  pdfcreator={Emacs 24.5.1 (Org mode 8.2.10)}}
+\begin{document}
+
+\maketitle
+\begin{abstract}
+KNPCM
+\end{abstract}
+\section{Algorithm}
+\label{sec-1}
+\subsection{Initialization}
+\label{sec-1-1}
+Let $A_j^{ini}$ be the set of points $\mathbf{x}_i$ that belong to cluster $C_j$ and $n_j$ be the size of $A_j^{ini}$. Then the we set
+\begin{IEEEeqnarray}{ll}
+\phi(\boldsymbol{\theta}_j) &= \frac{\Sigma_{i}\phi(\mathbf{x}_i)}{n_j}  \quad \text{for}\;\mathbf{x}_i \in A_j^{ini} \label{npcm_ini_theta}\\
+u_{ij} &= 1 \quad \text{if}\;\mathbf{x}_i\in A_j^{ini}
+\label{theta_ini}
+\end{IEEEeqnarray}
+Then initialize $\eta_j$
+\begin{IEEEeqnarray}{ll}
+\eta_j &= \frac{1}{n_j}\sum_{\mathbf{x}_i \in A_j^{ini}}\|\phi(x_i)-\phi(\theta_j)\| \\
+       &= \frac{\sum_{\mathbf{x}_i}\sqrt{\phi(x_i)\cdot\phi(x_i)-2\phi(x_i)\cdot\phi(\theta_j)+\phi(\theta_j)\cdot\phi(\theta_j)}}{n_j} \\
+&=\frac{1}{n_j} \sum_i\sqrt{\phi(x_i)\cdot\phi(x_i)-2\phi(x_i)\cdot\frac{\Sigma_{m}\phi(x_m)}{n_j}+\frac{\Sigma_{mn}\phi(x_m)\cdot\phi(x_n)}{n_j^2}}\\
+&=\frac{1}{n_j} \sum_i\sqrt{k(x_i,x_i)-2\frac{\Sigma_{m}k(x_i,x_m)}{n_j}+\frac{\Sigma_{mn}k(x_m,x_n)}{n_j^2}}
+\end{IEEEeqnarray}
+\subsection{Update}
+\label{sec-1-2}
+The update of $\theta_j$
+\begin{equation}
+\phi(\boldsymbol{\theta}_j)=\frac{\Sigma_{i=1}^Nu_{ij}\phi(\mathbf{x}_i)}{\Sigma_{i=1}^Nu_{ij}} \quad \text{for}\;u_{ij}\geq \alpha.
+\label{theta_update}
+\end{equation}
+For the update of $U$, we first calculate $d_{ij}$
+\begin{IEEEeqnarray}{ll}
+d_{ij}$ &= \|\phi(x_i)-\phi(\theta_j)\| \\
+&=\sqrt{\phi(x_i)\cdot\phi(x_i)-2\phi(x_i)\cdot\frac{\Sigma_{m}u_{mj}\phi(x_m)}{\Sigma_{m}u_{mj}}+\frac{\Sigma_{mn}u_{mj}u_{nj}\phi(x_m)\cdot\phi(x_n)}{(\Sigma_{m}u_{mj})^2}}\\
+       &= \sqrt{k(x_i,x_i)-2\frac{\Sigma_{m}u_{mj}k(x_i,x_m)}{\Sigma_{m}u_{mj}}+\frac{\Sigma_{mn}u_{mj}u_{nj}k(x_m,x_n)}{(\Sigma_{m}u_{mj})^2}}
+\end{IEEEeqnarray}
+Then set 
+\begin{equation}
+\label{npcm_u_update}
+\mu_{ij}=\exp\left(-\frac{d_{ij}^2}{\gamma_j}\right)
+\end{equation}
+where $\gamma_j=\left(0.5\eta_{j}+0.5\sqrt{\eta_{j}^{2}+0.8d_{ij}\eta_j/\sqrt{-\ln\alpha}}\right)^2$
+
+After updating $U$, $\theta_j$ is updated according to \eqref{theta_update}. The update of $\eta_j$ is 
+\begin{equation}
+\label{npcm_eta_update}
+\eta_j=\frac{1}{n_j}\sum_{\mathbf{x}_i\in A_j}||\phi(x_i)-\phi(\theta_j)|| \quad \text{for}\;u_{ij} \geq 0.01.
+\end{equation}
+where $A_j$ and $n_j$ have the same meaning as in \eqref{theta_ini}.
+% Emacs 24.5.1 (Org mode 8.2.10)
+\end{document}
