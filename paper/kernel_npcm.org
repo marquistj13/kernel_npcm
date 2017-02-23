@@ -48,6 +48,7 @@ Let $A_j^{ini}$ be the set of points $\mathbf{x}_i$ that belong to cluster $C_j$
 \begin{IEEEeqnarray}{ll}
 \phi(\boldsymbol{\theta}_j) &= \frac{\Sigma_{i}\phi(\mathbf{x}_i)}{n_j}  \quad \text{for}\;\mathbf{x}_i \in A_j^{ini} \label{npcm_ini_theta}\\
 u_{ij} &= 1 \quad \text{if}\;\mathbf{x}_i\in A_j^{ini}
+\label{theta_ini}
 \end{IEEEeqnarray}
 #+END_LaTeX 
 Then initialize $\eta_j$
@@ -60,12 +61,14 @@ Then initialize $\eta_j$
 \end{IEEEeqnarray}
 #+END_LaTeX
 *** Update
-The update of $\theta_j$
+The  $\theta_j$ is represented by the following formula using $u_{ij}$ in the last iteration.
 #+BEGIN_LaTeX
 \begin{equation}
 \phi(\boldsymbol{\theta}_j)=\frac{\Sigma_{i=1}^Nu_{ij}\phi(\mathbf{x}_i)}{\Sigma_{i=1}^Nu_{ij}} \quad \text{for}\;u_{ij}\geq \alpha.
+\label{theta_calculate}
 \end{equation}
 #+END_LaTeX
+
 For the update of $U$, we first calculate $d_{ij}$
 #+BEGIN_LaTeX
 \begin{IEEEeqnarray}{ll}
@@ -82,5 +85,23 @@ Then set
 \end{equation}
 #+END_LaTeX
 where $\gamma_j=\left(0.5\eta_{j}+0.5\sqrt{\eta_{j}^{2}+0.8d_{ij}\eta_j/\sqrt{-\ln\alpha}}\right)^2$
+
+After updating $U$, $\theta_j$ is updated according to \eqref{theta_calculate}. The update of $\eta_j$ is 
+#+BEGIN_LaTeX
+\begin{equation}
+\label{npcm_eta_update}
+\eta_j=\frac{1}{n_j}\sum_{\mathbf{x}_i\in A_j}||\phi(x_i)-\phi(\theta_j)|| \quad \text{for}\;u_{ij} \geq 0.01.
+\end{equation}
+#+END_LaTeX
+where $A_j$ and $n_j$ have the same meaning as in \eqref{theta_ini}. As $u_{ij}$ is updated, we need to calculate $\eta_j$ carefully.
+#+BEGIN_LaTeX
+\begin{IEEEeqnarray}{ll}
+d_{ij}$ &= \|\phi(x_i)-\phi(\theta_j)\| \\
+&=\sqrt{\phi(x_i)\cdot\phi(x_i)-2\phi(x_i)\cdot\frac{\Sigma_{m}u_{mj}\phi(x_m)}{\Sigma_{m}u_{mj}}+\frac{\Sigma_{mn}u_{mj}u_{nj}\phi(x_m)\cdot\phi(x_n)}{(\Sigma_{m}u_{mj})^2}}\\
+       &= \sqrt{k(x_i,x_i)-2\frac{\Sigma_{m}u_{mj}k(x_i,x_m)}{\Sigma_{m}u_{mj}}+\frac{\Sigma_{mn}u_{mj}u_{nj}k(x_m,x_n)}{(\Sigma_{m}u_{mj})^2}}
+\end{IEEEeqnarray}
+#+END_LaTeX
+
+
 
 

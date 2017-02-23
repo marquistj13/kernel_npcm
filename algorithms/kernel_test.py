@@ -22,7 +22,7 @@ def exp_marginal(d, v0, sigma_v0):
 v_exp_marginal = np.vectorize(exp_marginal)
 
 
-class kernel_npcm(BaseEstimator, ClusterMixin):
+class kernel_test(BaseEstimator, ClusterMixin):
     def __init__(self, X, m_ini, alpha_cut=0.1, ax=None, x_lim=None, y_lim=None, error=1e-5, maxiter=10000,
                  ini_save_name="", last_frame_name="", save_figsize=(8, 6), random_state=None,
                  kernel="linear", gamma=None, degree=3, coef0=1, kernel_params=None, verbose=0):
@@ -129,8 +129,8 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
 
             # use within_cluster points to compute eta_j
             KK = self.K[mask][:, mask]  # K[mask, mask] does not work.
-            within_distances_ = np.sum(KK) / n_j ** 2
-            eta_j = np.average(np.sqrt(np.sqrt(np.diag(KK) + within_distances_ - 2 * np.sum(KK, axis=1) / n_j)))
+            within_distances_ = n_j
+            eta_j = np.average(np.sqrt(2 - 2 * np.sum(KK, axis=1) / n_j))
             eta[j] = eta_j
         self.eta = eta
 
@@ -185,17 +185,12 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         # labels = np.argmax(self.u, axis=1)
         for j in xrange(self.m):
             mask = self.u[:, j] >= self.alpha_cut
+            n_j = np.sum(mask)
             u_j = self.u[mask, j]
             KK = K[mask][:, mask]  # K[mask, mask] does not work.
-            if update_alpha:
-                dist_j = np.sum(np.outer(u_j, u_j) * KK / np.square(np.sum(u_j)))
-                within_distances[j] = dist_j
-                dist[:, j] += dist_j
-            else:
-                dist[:, j] += within_distances[j]
+
             # u_j is broadcasted to (n_sample,n_u_j)
-            dist[:, j] += np.diag(K) - 2 * np.sum(u_j * K[:, mask], axis=1) / np.sum(u_j)
-        dist = np.sqrt(dist)
+            dist[:, j] = np.sqrt(2 - 2 * np.sum(u_j * K[:, mask], axis=1) / n_j)
 
     def update_u_theta(self):
         # update u (membership matrix)
@@ -246,8 +241,8 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         # remove the respective center related quantities
         if p > 0:
             self.log.critical("/******************************In cluster_elimination******************************/")
-            self.log.critical("labels:%s",labels)
-            self.log.critical("u:%s",self.u)
+            self.log.critical("labels:%s", labels)
+            self.log.critical("u:%s", self.u)
             self.log.critical(" %d clusters eliminated!", p)
             self.log.critical(" eliminated list:%s", index_delete)
             self.log.critical("/******************************End elimination******************************/")
@@ -257,9 +252,7 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
             self.ita_alpha_ori = np.delete(self.ita_alpha_ori, index_delete, axis=0)
             self.ita_alpha_sigmaV = np.delete(self.ita_alpha_sigmaV, index_delete, axis=0)
             self.m -= p
-
-
-        pass
+            pass
 
     def _compute_dist_eta(self, K):
         """Compute a n_samples x n_clusters distance matrix using the
@@ -269,16 +262,16 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         for j in xrange(self.m):
             eta_j = 0
             mask_eta = np.logical_and(self.u[:, j] >= 0.01, labels == j)
+            n_eta=np.sum(mask_eta)
             if np.any(mask_eta):
                 mask_theta = self.u[:, j] >= self.alpha_cut
+                n_theta = np.sum(mask_theta)
                 KK = K[mask_theta][:, mask_theta]  # K[mask, mask] does not work.
                 u_j = self.u[mask_theta, j]
-                dist_j = np.sum(np.outer(u_j, u_j) * KK / np.square(np.sum(u_j)))
-                eta_j += dist_j
+                dist_j = n_theta
+
                 # u_j is broadcasted to (n_eta_j,n_u_j)
-                eta_j += np.diag(K[mask_eta][:, mask_eta]) - 2 * np.sum(u_j * K[mask_eta][:, mask_theta],
-                                                                        axis=1) / np.sum(u_j)
-                eta_j = np.average(eta_j)
+                eta_j = np.average(np.sqrt(2 - 2 * np.sum(u_j * K[mask_eta][:, mask_theta], axis=1) / n_eta))
                 eta.append(eta_j)
             else:
                 eta.append(0)

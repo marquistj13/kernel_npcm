@@ -3,10 +3,6 @@ import numpy as np
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 import logging
-from sklearn.base import BaseEstimator, ClusterMixin
-from sklearn.metrics.pairwise import pairwise_kernels
-from sklearn.utils import check_random_state
-from kernel_kmeans import KernelKMeans
 
 logging.captureWarnings(True)
 
@@ -22,19 +18,18 @@ def exp_marginal(d, v0, sigma_v0):
 v_exp_marginal = np.vectorize(exp_marginal)
 
 
-class kernel_npcm(BaseEstimator, ClusterMixin):
-    def __init__(self, X, m_ini, alpha_cut=0.1, ax=None, x_lim=None, y_lim=None, error=1e-5, maxiter=10000,
-                 ini_save_name="", last_frame_name="", save_figsize=(8, 6), random_state=None,
-                 kernel="linear", gamma=None, degree=3, coef0=1, kernel_params=None, verbose=0):
+class npcm_kernel_zero():
+    def __init__(self, X, m, ax, x_lim, y_lim, alpha_cut=0.1, error=1e-5, maxiter=10000, ini_save_name="",
+                 last_frame_name="", save_figsize=(8, 6)):
         """
         :param X: scikit-learn form, i.e., pf shape (n_samples, n_features)
-        :param m_ini: NO.of initial clusters
+        :param m: NO.of initial clusters
         :param sig_v0:
         :return:
         """
         self.x = X
-        self.m = m_ini
-        self.m_ori = m_ini  # the original number of clusters specified
+        self.m = m
+        self.m_ori = m  # the original number of clusters specified
         self.ax = ax
         self.x_lim = x_lim  # tuple
         self.y_lim = y_lim
@@ -51,16 +46,8 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         self.ini_save_name = ini_save_name
         self.last_frame_name = last_frame_name
         self.log = logging.getLogger('algorithm.npcm')
-        self.random_state = random_state
-        self.kernel = kernel
-        self.gamma = gamma
-        self.degree = degree
-        self.coef0 = coef0
-        self.kernel_params = kernel_params
-        self.verbose = verbose
         # use fcm to initialise the clusters
-        # self.init_theta_ita()
-        self.K = self._get_kernel(self.x)
+        self.init_theta_ita()
         pass
 
     def init_animation(self):
@@ -116,23 +103,23 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         labels = clf.labels_
         # initialize theta, i.e., the centers
         self.theta = clf.cluster_centers_
-        # u
-        u = np.zeros((np.shape(self.x)[0], self.m_ori))
-        u[xrange(len(u)), labels] = 1
-        self.u = u
         # now compute ita
+        ita = np.zeros(self.m)
         self.log.debug("Initialize bandwidth via KMeans")
-        eta = np.zeros(self.m)
         for j in xrange(self.m_ori):
-            mask = labels == j
-            n_j = np.sum(mask)
-
-            # use within_cluster points to compute eta_j
-            KK = self.K[mask][:, mask]  # K[mask, mask] does not work.
-            within_distances_ = np.sum(KK) / n_j ** 2
-            eta_j = np.average(np.sqrt(np.sqrt(np.diag(KK) + within_distances_ - 2 * np.sum(KK, axis=1) / n_j)))
-            eta[j] = eta_j
-        self.eta = eta
+            x_js = self.x[labels == j]
+            n_x_js = len(x_js)
+            d_tmp = 0
+            k_tmp = 0
+            for x_j in x_js:
+                d_tmp = np.square(map(np.linalg.norm, x_j - x_js))
+                k_tmp = np.average(np.exp(-d_tmp))
+                ita[j] = np.sqrt(2 - 2 * k_tmp)
+        self.ita = ita
+        # u
+        u = np.zeros((len(self.x), self.m_ori))
+        u[xrange(len(self.x)), labels] = 1
+        self.u = u
 
         # plot the fcm initialization result
         fig = plt.figure("KMeans_init", dpi=300, figsize=self.save_figsize)
@@ -152,7 +139,7 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         density_list = []  # store density each cluster
         for index in range(self.m):
             no_of_pnts = np.sum(labels == index)
-            density = no_of_pnts / np.power(eta[index], np.shape(self.x)[1])
+            density = no_of_pnts / np.power(ita[index], np.shape(self.x)[1])
             density_list.append(density)
         index_delete = []  # store the cluster index to be deleted
         p = 0
@@ -162,40 +149,13 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
                 index_delete.append(index)
                 p += 1
         for index in range(self.m):
-            self.log.debug("%d th cluster, ita:%.3f, density:%.3f", index, eta[index], density_list[index])
+            self.log.debug("%d th cluster, ita:%.3f, density:%.3f", index, ita[index], density_list[index])
         self.log.debug("Noise cluster delete list:%s", index_delete)
         self.theta = np.delete(self.theta, index_delete, axis=0)
-        self.eta = np.delete(self.eta, index_delete, axis=0)
+        self.ita = np.delete(self.ita, index_delete, axis=0)
         self.m -= p
         pass
 
-    def _get_kernel(self, X, Y=None):
-        if callable(self.kernel):
-            params = self.kernel_params or {}
-        else:
-            params = {"gamma": self.gamma,
-                      "degree": self.degree,
-                      "coef0": self.coef0}
-        return pairwise_kernels(X, Y, metric=self.kernel,
-                                filter_params=True, **params)
-
-    def _compute_dist_alpha(self, K, dist, within_distances, update_alpha):
-        """Compute a n_samples x n_clusters distance matrix using the
-        kernel trick."""
-        # labels = np.argmax(self.u, axis=1)
-        for j in xrange(self.m):
-            mask = self.u[:, j] >= self.alpha_cut
-            u_j = self.u[mask, j]
-            KK = K[mask][:, mask]  # K[mask, mask] does not work.
-            if update_alpha:
-                dist_j = np.sum(np.outer(u_j, u_j) * KK / np.square(np.sum(u_j)))
-                within_distances[j] = dist_j
-                dist[:, j] += dist_j
-            else:
-                dist[:, j] += within_distances[j]
-            # u_j is broadcasted to (n_sample,n_u_j)
-            dist[:, j] += np.diag(K) - 2 * np.sum(u_j * K[:, mask], axis=1) / np.sum(u_j)
-        dist = np.sqrt(dist)
 
     def update_u_theta(self):
         # update u (membership matrix)
@@ -203,34 +163,44 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         self.ita_alpha_sigmaV = []
         self.ita_alpha_ori = []
         u = np.zeros((np.shape(self.x)[0], self.m))
-
-        dist = np.zeros((self.x.shape[0], self.m))
-        self.within_distances = np.zeros(self.m)
-        self._compute_dist_alpha(self.K, dist, self.within_distances, update_alpha=True)
+        # tmp_sig=[]
+        # for cntr_index in range(self.m):
+        #     dist_2_cntr = map(np.linalg.norm, self.x - self.theta[cntr_index])
+        #     tmp_sig_vj = 0.5 * self.ita[cntr_index] / np.sqrt(-np.log(self.alpha_cut))
+        #     tmp_sig.append(tmp_sig_vj)
+        # tmp_sig_vj=np.average(tmp_sig)
         for cntr_index in range(self.m):
-            dist_2_cntr = dist[:, cntr_index]
+            mask_alpha = self.u[:, cntr_index] >= self.alpha_cut
+            x_js = self.x[mask_alpha]
+            d_tmp = 0
+            k_tmp = 0
+            dist_2_cntr = []
+            for x_i in self.x:
+                d_tmp = np.square(map(np.linalg.norm, x_i - x_js))
+                k_tmp = 2 - 2 * np.dot(np.exp(-d_tmp), self.u[mask_alpha, cntr_index]) / np.sum(
+                    self.u[mask_alpha, cntr_index])
+                dist_2_cntr.append(np.sqrt(k_tmp))
+            dist_2_cntr = np.array(dist_2_cntr)
             # caculate sigma_vj for each cluster
-            tmp_sig_vj = 0.2 * self.eta[cntr_index] / np.sqrt(-np.log(self.alpha_cut))
+            tmp_sig_vj = 0.2 * self.ita[cntr_index] / np.sqrt(-np.log(self.alpha_cut))
             # tmp_sig_vj = 1
             # caculate the d_\alpha of each cluster, i.e., the outer bandwidth circle
-            tmp_ita_alpha = np.sqrt(-np.log(self.alpha_cut)) * (self.eta[cntr_index] + np.sqrt(-np.log(self.alpha_cut))
+            tmp_ita_alpha = np.sqrt(-np.log(self.alpha_cut)) * (self.ita[cntr_index] + np.sqrt(-np.log(self.alpha_cut))
                                                                 * tmp_sig_vj)
-            tmp_ita_ori = np.sqrt(-np.log(self.alpha_cut)) * self.eta[cntr_index]
+            tmp_ita_ori = np.sqrt(-np.log(self.alpha_cut)) * self.ita[cntr_index]
             self.ita_alpha_sigmaV.append(tmp_ita_alpha)
             self.ita_alpha_ori.append(tmp_ita_ori)
             self.log.debug("%d th cluster, ita:%3f, sig_v:%3f, d_alpha_corrected:%3f, d_alpha_ori:%3f" %
-                           (cntr_index, self.eta[cntr_index], tmp_sig_vj, tmp_ita_alpha, tmp_ita_ori))
-            u[:, cntr_index] = v_exp_marginal(dist_2_cntr, self.eta[cntr_index], tmp_sig_vj)
+                           (cntr_index, self.ita[cntr_index], tmp_sig_vj, tmp_ita_alpha, tmp_ita_ori))
+            u[:, cntr_index] = v_exp_marginal(dist_2_cntr, self.ita[cntr_index], tmp_sig_vj)
         self.u = u
-        # update theta (centers), maybe for plot use. Note that in the high-dimensional feature space, we can't know
-        # the theta because we can't know the mapping \phi generally
+        # update theta (centers)
         for cntr_index in range(self.m):
             # only those without too much noise can be used to calculate centers
             samples_mask = u[:, cntr_index] >= self.alpha_cut
             if np.any(samples_mask):  # avoid null value for the following calculation
                 self.theta[cntr_index] = np.sum(u[samples_mask][:, cntr_index][:, np.newaxis]
                                                 * self.x[samples_mask], axis=0) / sum(u[samples_mask][:, cntr_index])
-
         pass
 
     def cluster_elimination(self):
@@ -245,46 +215,15 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
                 index_delete.append(cntr_index)
         # remove the respective center related quantities
         if p > 0:
-            self.log.critical("/******************************In cluster_elimination******************************/")
-            self.log.critical("labels:%s",labels)
-            self.log.critical("u:%s",self.u)
-            self.log.critical(" %d clusters eliminated!", p)
-            self.log.critical(" eliminated list:%s", index_delete)
-            self.log.critical("/******************************End elimination******************************/")
             self.u = np.delete(self.u, index_delete, axis=1)
             self.theta = np.delete(self.theta, index_delete, axis=0)
-            self.eta = np.delete(self.eta, index_delete, axis=0)
+            self.ita = np.delete(self.ita, index_delete, axis=0)
             self.ita_alpha_ori = np.delete(self.ita_alpha_ori, index_delete, axis=0)
             self.ita_alpha_sigmaV = np.delete(self.ita_alpha_sigmaV, index_delete, axis=0)
             self.m -= p
-
-
         pass
 
-    def _compute_dist_eta(self, K):
-        """Compute a n_samples x n_clusters distance matrix using the
-        kernel trick."""
-        eta = []
-        labels = np.argmax(self.u, axis=1)
-        for j in xrange(self.m):
-            eta_j = 0
-            mask_eta = np.logical_and(self.u[:, j] >= 0.01, labels == j)
-            if np.any(mask_eta):
-                mask_theta = self.u[:, j] >= self.alpha_cut
-                KK = K[mask_theta][:, mask_theta]  # K[mask, mask] does not work.
-                u_j = self.u[mask_theta, j]
-                dist_j = np.sum(np.outer(u_j, u_j) * KK / np.square(np.sum(u_j)))
-                eta_j += dist_j
-                # u_j is broadcasted to (n_eta_j,n_u_j)
-                eta_j += np.diag(K[mask_eta][:, mask_eta]) - 2 * np.sum(u_j * K[mask_eta][:, mask_theta],
-                                                                        axis=1) / np.sum(u_j)
-                eta_j = np.average(eta_j)
-                eta.append(eta_j)
-            else:
-                eta.append(0)
-        return eta
-
-    def adapt_eta(self):
+    def adapt_ita(self):
         """
         in the hard partition, if no point belongs to cluster i then it will be removed.
         :return:
@@ -292,16 +231,46 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         p = 0
         index_delete = []  # store the cluster index to be deleted
 
-        self.eta = self._compute_dist_eta(self.K)
+        labels = np.argmax(self.u, axis=1)
         for cntr_index in range(self.m):
-            if np.isclose(self.eta[cntr_index], 0):
+            # dist_2_cntr = map(np.linalg.norm, self.x[labels == cntr_index] - self.theta[cntr_index])
+            # self.ita[cntr_index] = sum(dist_2_cntr) / np.sum(labels == cntr_index)
+            # self.ita[cntr_index] = np.dot(dist_2_cntr, self.u[labels == cntr_index][:, cntr_index]) / np.sum(
+            #     labels == cntr_index)
+            samples_mask = np.logical_and(self.u[:, cntr_index] >= 0.01, labels == cntr_index)
+
+            mask_alpha = self.u[:, cntr_index] >= self.alpha_cut
+            x_js = self.x[mask_alpha]
+            d_tmp = 0
+            k_tmp = 0
+            dist_2_cntr = []
+            for x_i in self.x[samples_mask]:
+                d_tmp = np.square(map(np.linalg.norm, x_i - x_js))
+                k_tmp = 2 - 2 * np.dot(np.exp(-d_tmp), self.u[mask_alpha, cntr_index]) / np.sum(
+                    self.u[mask_alpha, cntr_index])
+                dist_2_cntr.append(np.sqrt(k_tmp))
+            if np.any(samples_mask):
+                self.ita[cntr_index] = np.average(dist_2_cntr)
+            else:
+                self.ita[cntr_index] = 0
+
+            # # only those without too much noise can be used to calculate ita
+            # samples_mask = self.u[:, cntr_index] >= 0.1
+            # # samples_mask = self.u[:, cntr_index] >= self.alpha_cut
+            # tmp_average_mf=np.average(self.u[samples_mask][:, cntr_index])
+            # self.log.info("cluster:%d,%3f",cntr_index,tmp_average_mf)
+            # if np.any(samples_mask):  # avoid null value for the following calculation
+            #     dist_2_cntr = map(np.linalg.norm, self.x[samples_mask] - self.theta[cntr_index])
+            #     # self.ita[cntr_index] = np.dot(dist_2_cntr,self.u[samples_mask][:, cntr_index]) / np.sum(samples_mask)
+            #     self.ita[cntr_index] = sum(dist_2_cntr)*tmp_average_mf / np.sum(samples_mask)
+            if np.isclose(self.ita[cntr_index], 0):
                 p += 1
                 index_delete.append(cntr_index)
                 # remove the respective center related quantities
         if p > 0:
             self.u = np.delete(self.u, index_delete, axis=1)
             self.theta = np.delete(self.theta, index_delete, axis=0)
-            self.eta = np.delete(self.eta, index_delete, axis=0)
+            self.ita = np.delete(self.ita, index_delete, axis=0)
             self.ita_alpha_ori = np.delete(self.ita_alpha_ori, index_delete, axis=0)
             self.ita_alpha_sigmaV = np.delete(self.ita_alpha_sigmaV, index_delete, axis=0)
             self.m -= p
@@ -324,7 +293,7 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
             ax.plot(self.x[labels == label][:, 0], self.x[labels == label][:, 1], '.', color=colors[label], zorder=1)
             ax.plot(self.theta[label][0], self.theta[label][1], 'rs', zorder=2)
             ax.add_patch(plt.Circle((self.theta[label][0], self.theta[label][1]), zorder=3,
-                                    radius=self.eta[label], color='k', fill=None, lw=3.5, linestyle='dotted'))
+                                    radius=self.ita[label], color='k', fill=None, lw=3.5, linestyle='dotted'))
             ax.add_patch(plt.Circle((self.theta[label][0], self.theta[label][1]), zorder=3,
                                     radius=self.ita_alpha_ori[label], color='k', fill=None, lw=2, linestyle='solid'))
             ax.add_patch(plt.Circle((self.theta[label][0], self.theta[label][1]), zorder=3,
@@ -349,12 +318,11 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
         self.m = self.m_ori
         self.init_animation()
         self.init_theta_ita()
-
         while p < self.maxiter:
             theta_ori = self.theta.copy()
             self.update_u_theta()
-            self.cluster_elimination()
-            # self.adapt_eta()
+            # self.cluster_elimination()
+            # self.adapt_ita()
             if (len(theta_ori) == len(self.theta)) and (np.linalg.norm(self.theta - theta_ori) < self.error):
                 self.save_last_frame(p)
                 break
@@ -382,7 +350,7 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
                 line.set_data(self.x[labels == label][:, 0], self.x[labels == label][:, 1])
                 line_center.set_data(self.theta[label][0], self.theta[label][1])
                 inner_circle.center = self.theta[label][0], self.theta[label][1]
-                inner_circle.set_radius(self.eta[label])
+                inner_circle.set_radius(self.ita[label])
                 circle.center = self.theta[label][0], self.theta[label][1]
                 circle.set_radius(self.ita_alpha_ori[label])
                 outer_circle.center = self.theta[label][0], self.theta[label][1]
@@ -395,7 +363,7 @@ class kernel_npcm(BaseEstimator, ClusterMixin):
                 line.set_data(self.x[labels == label][:, 0], self.x[labels == label][:, 1])
                 line_center.set_data(self.theta[label][0], self.theta[label][1])
                 inner_circle.center = self.theta[label][0], self.theta[label][1]
-                inner_circle.set_radius(self.eta[label])
+                inner_circle.set_radius(self.ita[label])
                 circle.center = self.theta[label][0], self.theta[label][1]
                 circle.set_radius(self.ita_alpha_ori[label])
                 outer_circle.center = self.theta[label][0], self.theta[label][1]
